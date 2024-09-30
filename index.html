@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BFS Visualization in Three.js with User Input</title>
+  <style>
+    body { margin: 0; display: flex; flex-direction: column; align-items: center; background-color: #000; }
+    canvas { display: block; }
+    #inputContainer { margin: 20px; }
+    #notification { font-size: 18px; margin: 10px; color: #ffffff; }
+    #colorKey { font-size: 14px; margin: 10px; color: #ffffff; }
+    #colorKey span { 
+      padding: 5px; 
+      margin-right: 10px; 
+      border-radius: 5px; 
+      color: black; /* Text color set to black */
+    }
+  </style>
+</head>
+<body>
+  <div id="inputContainer">
+    <h3 style="color: white;">Enter Graph as Adjacency List</h3>
+    <textarea id="graphInput" rows="10" cols="30" placeholder="101: 103\n102: 104, 105\n..."></textarea>
+    <button id="submitGraph">Submit Graph</button>
+  </div>
+
+  <div id="notification">Traversal not started</div>
+  <div id="colorKey">
+    <span style="background-color: #00ff00;">Unvisited</span>
+    <span style="background-color: #ff5555;">Visited</span>
+    <span style="background-color: #0099ff;">Parent Node</span>
+    <span style="background-color: #ffff00;">Active Edge</span>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/examples/js/geometries/TextGeometry.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/examples/js/libs/fontloader.min.js"></script>
+
+  <script>
+    let scene, camera, renderer;
+    let nodeObjects = {}, edgeObjects = [], labelObjects = [];
+    let bfsQueue = [], visited = new Set();
+    let nodePositions = {};
+    let graph = {};
+    let animationStarted = false;
+    let notification = document.getElementById("notification");
+
+    function init() {
+      scene = new THREE.Scene();
+      camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+      camera.position.z = 50;
+      renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      document.body.appendChild(renderer.domElement);
+      const light = new THREE.AmbientLight(0xffffff);  // Brighten ambient light for better visibility
+      scene.add(light);
+    }
+
+    function createGraphNodes(font) {
+      const nodeRadius = 1;
+      const geometry = new THREE.SphereGeometry(nodeRadius, 32, 32);
+      const material = new THREE.MeshBasicMaterial({ color: 0x00ff00 });  // Bright green for unvisited nodes
+
+      const keys = Object.keys(graph);
+      const angleIncrement = Math.PI * 2 / keys.length;
+
+      for (let index = 0; index < keys.length; index++) {
+        const node = keys[index];
+        const angle = index * angleIncrement;
+        const x = 20 * Math.cos(angle);
+        const y = 20 * Math.sin(angle);
+        const z = 0;
+
+        const sphere = new THREE.Mesh(geometry, material.clone());
+        sphere.position.set(x, y, z);
+        nodePositions[node] = { x, y, z };
+
+        nodeObjects[node] = sphere;
+        scene.add(sphere);
+        createNodeLabel(node, x, y + 2, z, font);
+      }
+    }
+
+    function createGraphEdges() {
+      for (let node in graph) {
+        for (let neighbor of graph[node]) {
+          if (nodePositions[node] && nodePositions[neighbor]) {
+            const material = new THREE.LineBasicMaterial({ color: 0xffffff, linewidth: 2 });  // White edges
+            const points = [];
+            points.push(new THREE.Vector3(nodePositions[node].x, nodePositions[node].y, nodePositions[node].z));
+            points.push(new THREE.Vector3(nodePositions[neighbor].x, nodePositions[neighbor].y, nodePositions[neighbor].z));
+
+            const geometry = new THREE.BufferGeometry().setFromPoints(points);
+            const line = new THREE.Line(geometry, material);
+            line.userData = { from: node, to: neighbor };  // Store nodes involved in this edge
+            scene.add(line);
+            edgeObjects.push(line);
+          }
+        }
+      }
+    }
+
+    function bfs(startNode) {
+      bfsQueue.push(startNode);
+      visited.add(startNode);
+      let delay = 0;
+      const parents = { [startNode]: null };
+      let lastParentNode = null;
+
+      function animateVisit(node) {
+        setTimeout(() => {
+          if (nodeObjects[node]) {
+            nodeObjects[node].material.color.setHex(0xff5555);  // Bright red for visited nodes
+
+            const parent = parents[node];
+            if (parent && nodeObjects[parent]) {
+              if (lastParentNode && lastParentNode !== parent) {
+                nodeObjects[lastParentNode].material.color.setHex(0xff5555);
+              }
+
+              nodeObjects[parent].material.color.setHex(0x0099ff);  // Bright blue for parent nodes
+
+              const currentEdge = edgeObjects.find(edge => 
+                (edge.userData.from === parent && edge.userData.to === node) || 
+                (edge.userData.from === node && edge.userData.to === parent)
+              );
+
+              if (currentEdge) {
+                currentEdge.material.color.setHex(0xffff00);  // Bright yellow for active edge
+              }
+
+              notification.innerHTML = `Transfer from ${parent} to ${node}`;
+            }
+
+            lastParentNode = parent;
+          }
+        }, delay);
+        delay += 1000;
+
+        setTimeout(() => {
+          if (lastParentNode && nodeObjects[lastParentNode]) {
+            nodeObjects[lastParentNode].material.color.setHex(0xff5555);
+          }
+        }, delay);
+      }
+
+      while (bfsQueue.length > 0) {
+        const currentNode = bfsQueue.shift();
+        animateVisit(currentNode);
+
+        if (graph[currentNode]) {
+          for (let neighbor of graph[currentNode]) {
+            if (!visited.has(neighbor)) {
+              visited.add(neighbor);
+              parents[neighbor] = currentNode;
+              bfsQueue.push(neighbor);
+            }
+          }
+        }
+      }
+    }
+
+    function createNodeLabel(node, x, y, z, font) {
+      const textGeometry = new THREE.TextGeometry(node.toString(), {
+        font: font,
+        size: 1,
+        height: 0.2,
+      });
+      const textMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });  // White for labels
+      const textMesh = new THREE.Mesh(textGeometry, textMaterial);
+
+      textMesh.position.set(x, y, z);
+      scene.add(textMesh);
+      labelObjects.push(textMesh);
+    }
+
+    function parseGraphInput() {
+      const input = document.getElementById("graphInput").value.trim();
+      graph = {};
+
+      input.split('\n').forEach(line => {
+        const [node, neighbors] = line.split(':');
+        if (node) {
+          const neighborsArray = (neighbors ? neighbors.split(',').map(n => n.trim()).filter(n => n !== '') : []);
+          graph[node.trim()] = neighborsArray;
+        }
+      });
+
+      resetScene();
+      initGraph();
+    }
+
+    function resetScene() {
+      Object.values(nodeObjects).forEach(node => scene.remove(node));
+      edgeObjects.forEach(edge => scene.remove(edge));
+      nodeObjects = {};
+      edgeObjects = [];
+      visited.clear();
+      bfsQueue = [];
+    }
+
+    function initGraph() {
+      const loader = new THREE.FontLoader();
+      loader.load('https://threejs.org/examples/fonts/helvetiker_regular.typeface.json', font => {
+        createGraphNodes(font);
+        createGraphEdges();
+
+        const startNode = Object.keys(graph)[0];
+        if (startNode) {
+          bfs(startNode);
+        }
+      });
+    }
+
+    document.getElementById("submitGraph").onclick = function() {
+      parseGraphInput();
+    };
+
+    function animate() {
+      requestAnimationFrame(animate);
+      renderer.render(scene, camera);
+    }
+
+    init();
+    animate();
+  </script>
+</body>
+</html>
